@@ -1,136 +1,68 @@
 const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
-const db = require('../db/database');
+const pool = require('../db/database');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 
-// GET /api/categories - Lists all categories with their respective article counts
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const list = db.prepare(`
-      SELECT 
-        c.id, 
-        c.name, 
-        c.slug, 
-        c.description, 
-        c.color, 
-        c.icon,
-        (SELECT COUNT(*) FROM articles WHERE category_id = c.id AND status = 'published') as article_count
-      FROM categories c
-      ORDER BY c.name ASC
-    `).all();
-
-    return res.status(200).json({ success: true, data: list });
+    const { rows } = await pool.query(
+      `SELECT c.*, COUNT(a.id) as article_count
+       FROM categories c LEFT JOIN articles a ON a.category_id = c.id AND a.status = 'published'
+       GROUP BY c.id ORDER BY c.name`
+    );
+    res.json({ success: true, categories: rows });
   } catch (err) {
-    console.error('List categories error:', err);
-    return res.status(500).json({ success: false, error: 'Internal Server Error' });
+    res.status(500).json({ success: false, error: 'Failed to fetch categories.' });
   }
 });
 
-// GET /api/categories/:slug
-router.get('/:slug', (req, res) => {
+router.get('/:slug', async (req, res) => {
   try {
-    const category = db.prepare('SELECT * FROM categories WHERE slug = ?').get(req.params.slug);
-    if (!category) {
-      return res.status(404).json({ success: false, error: 'Category not found.' });
-    }
-    return res.status(200).json({ success: true, data: category });
+    const { rows } = await pool.query('SELECT * FROM categories WHERE slug = $1', [req.params.slug]);
+    if (!rows[0]) return res.status(404).json({ success: false, error: 'Category not found.' });
+    res.json({ success: true, category: rows[0] });
   } catch (err) {
-    console.error('Get category error:', err);
-    return res.status(500).json({ success: false, error: 'Internal Server Error' });
+    res.status(500).json({ success: false, error: 'Failed to fetch category.' });
   }
 });
 
-// POST /api/categories - Requires admin permissions
-router.post('/', authenticate, requireAdmin, (req, res) => {
-  const { name, description, color, icon } = req.body;
-
-  if (!name) {
-    return res.status(400).json({ success: false, error: 'Category name is required.' });
-  }
-
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, '')
-    .trim()
-    .replace(/\s+/g, '-');
-
+router.post('/', authenticate, requireAdmin, async (req, res) => {
   try {
-    const existing = db.prepare('SELECT id FROM categories WHERE name = ? OR slug = ?').get(name, slug);
-    if (existing) {
-      return res.status(400).json({ success: false, error: 'Category name or slug already exists.' });
-    }
-
+    const { name, slug, description, color, icon } = req.body;
+    if (!name || !slug) return res.status(400).json({ success: false, error: 'Name and slug are required.' });
     const id = uuidv4();
-    db.prepare(`
-      INSERT INTO categories (id, name, slug, description, color, icon)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, name, slug, description || '', color || '#C45D3E', icon || 'folder');
-
-    const created = db.prepare('SELECT * FROM categories WHERE id = ?').get(id);
-    return res.status(201).json({ success: true, data: created });
+    const { rows } = await pool.query(
+      `INSERT INTO categories (id, name, slug, description, color, icon) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [id, name, slug, description || '', color || '#C45D3E', icon || 'folder']
+    );
+    res.status(201).json({ success: true, category: rows[0] });
   } catch (err) {
-    console.error('Create category error:', err);
-    return res.status(500).json({ success: false, error: 'Internal Server Error' });
+    res.status(500).json({ success: false, error: 'Failed to create category.' });
   }
 });
 
-// PUT /api/categories/:id - Requires admin permissions
-router.put('/:id', authenticate, requireAdmin, (req, res) => {
-  const { name, description, color, icon } = req.body;
-
-  if (!name) {
-    return res.status(400).json({ success: false, error: 'Category name is required.' });
-  }
-
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, '')
-    .trim()
-    .replace(/\s+/g, '-');
-
+router.put('/:id', authenticate, requireAdmin, async (req, res) => {
   try {
-    const existing = db.prepare('SELECT id FROM categories WHERE id = ?').get(req.params.id);
-    if (!existing) {
-      return res.status(404).json({ success: false, error: 'Category does not exist.' });
-    }
-
-    db.prepare(`
-      UPDATE categories
-      SET name = ?, slug = ?, description = ?, color = ?, icon = ?
-      WHERE id = ?
-    `).run(name, slug, description || '', color || '#C45D3E', icon || 'folder', req.params.id);
-
-    const updated = db.prepare('SELECT * FROM categories WHERE id = ?').get(req.params.id);
-    return res.status(200).json({ success: true, data: updated });
+    const { name, slug, description, color, icon } = req.body;
+    const { rows } = await pool.query(
+      `UPDATE categories SET name=$1, slug=$2, description=$3, color=$4, icon=$5 WHERE id=$6 RETURNING *`,
+      [name, slug, description, color, icon, req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ success: false, error: 'Category not found.' });
+    res.json({ success: true, category: rows[0] });
   } catch (err) {
-    console.error('Update category error:', err);
-    return res.status(500).json({ success: false, error: 'Internal Server Error' });
+    res.status(500).json({ success: false, error: 'Failed to update category.' });
   }
 });
 
-// DELETE /api/categories/:id - Requires admin permissions, locks deletions on occupied tags
-router.delete('/:id', authenticate, requireAdmin, (req, res) => {
+router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
   try {
-    const existing = db.prepare('SELECT id FROM categories WHERE id = ?').get(req.params.id);
-    if (!existing) {
-      return res.status(404).json({ success: false, error: 'Category does not exist.' });
-    }
-
-    // Check if category has articles
-    const articlesCount = db.prepare('SELECT COUNT(*) as count FROM articles WHERE category_id = ?').get(req.params.id).count;
-    if (articlesCount > 0) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Cannot delete occupied category. Please migrate or delete the articles in it first.' 
-      });
-    }
-
-    db.prepare('DELETE FROM categories WHERE id = ?').run(req.params.id);
-    return res.status(200).json({ success: true, message: 'Category deleted successfully.' });
+    const result = await pool.query('DELETE FROM categories WHERE id = $1', [req.params.id]);
+    if (result.rowCount === 0) return res.status(404).json({ success: false, error: 'Category not found.' });
+    res.status(204).send();
   } catch (err) {
-    console.error('Delete category error:', err);
-    return res.status(500).json({ success: false, error: 'Internal Server Error' });
+    res.status(500).json({ success: false, error: 'Failed to delete category.' });
   }
 });
 

@@ -1,106 +1,54 @@
 const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
-const db = require('../db/database');
-const { authenticate } = require('../middleware/auth');
+const pool = require('../db/database');
+const { authenticate, requireAdmin } = require('../middleware/auth');
 
-// GET /api/comments/article/:articleId - Lists all comments associated with the article
-router.get('/article/:articleId', (req, res) => {
+router.get('/:articleId', async (req, res) => {
   try {
-    // Verify article exists
-    const article = db.prepare('SELECT id FROM articles WHERE id = ?').get(req.params.articleId);
-    if (!article) {
-      return res.status(404).json({ success: false, error: 'Article not found.' });
-    }
-
-    const comments = db.prepare(`
-      SELECT 
-        c.id, 
-        c.content, 
-        c.created_at, 
-        c.user_id,
-        u.username, 
-        u.display_name, 
-        u.avatar_url,
-        u.role
-      FROM comments c
-      JOIN users u ON c.user_id = u.id
-      WHERE c.article_id = ?
-      ORDER BY c.created_at DESC
-    `).all(req.params.articleId);
-
-    return res.status(200).json({ success: true, data: comments });
+    const { rows } = await pool.query(
+      `SELECT c.id, c.content, c.created_at,
+              u.id as user_id, u.username, u.display_name, u.avatar_url
+       FROM comments c JOIN users u ON c.user_id = u.id
+       WHERE c.article_id = $1 ORDER BY c.created_at ASC`,
+      [req.params.articleId]
+    );
+    res.json({ success: true, comments: rows });
   } catch (err) {
-    console.error('List comments error:', err);
-    return res.status(500).json({ success: false, error: 'Internal Server Error' });
+    res.status(500).json({ success: false, error: 'Failed to fetch comments.' });
   }
 });
 
-// POST /api/comments/article/:articleId - Requires authentication to publish comments
-router.post('/article/:articleId', authenticate, (req, res) => {
-  const { content } = req.body;
-  const { articleId } = req.params;
-
-  if (!content || !content.trim()) {
-    return res.status(400).json({ success: false, error: 'Comment body content is required.' });
-  }
-
+router.post('/:articleId', authenticate, async (req, res) => {
   try {
-    // Verify article exists
-    const article = db.prepare('SELECT id FROM articles WHERE id = ?').get(articleId);
-    if (!article) {
-      return res.status(404).json({ success: false, error: 'Article not found.' });
-    }
-
-    const commentId = uuidv4();
-    db.prepare(`
-      INSERT INTO comments (id, article_id, user_id, content)
-      VALUES (?, ?, ?, ?)
-    `).run(commentId, articleId, req.user.id, content.trim());
-
-    // Fetch the recently created comment with user tags joined
-    const created = db.prepare(`
-      SELECT 
-        c.id, 
-        c.content, 
-        c.created_at, 
-        c.user_id,
-        u.username, 
-        u.display_name, 
-        u.avatar_url,
-        u.role
-      FROM comments c
-      JOIN users u ON c.user_id = u.id
-      WHERE c.id = ?
-    `).get(commentId);
-
-    return res.status(201).json({ success: true, comment: created });
+    const { content } = req.body;
+    if (!content || !content.trim()) return res.status(400).json({ success: false, error: 'Comment content is required.' });
+    const id = uuidv4();
+    await pool.query(
+      'INSERT INTO comments (id, article_id, user_id, content) VALUES ($1,$2,$3,$4)',
+      [id, req.params.articleId, req.user.id, content.trim()]
+    );
+    const { rows } = await pool.query(
+      `SELECT c.id, c.content, c.created_at, u.id as user_id, u.username, u.display_name, u.avatar_url
+       FROM comments c JOIN users u ON c.user_id = u.id WHERE c.id = $1`,
+      [id]
+    );
+    res.status(201).json({ success: true, comment: rows[0] });
   } catch (err) {
-    console.error('Publish comment error:', err);
-    return res.status(500).json({ success: false, error: 'Internal Server Error' });
+    res.status(500).json({ success: false, error: 'Failed to post comment.' });
   }
 });
 
-// DELETE /api/comments/:id - Requires authentication, gates creator ownership or admin roles
-router.delete('/:id', authenticate, (req, res) => {
+router.delete('/:id', authenticate, async (req, res) => {
   try {
-    const comment = db.prepare('SELECT user_id FROM comments WHERE id = ?').get(req.params.id);
-    if (!comment) {
-      return res.status(404).json({ success: false, error: 'Comment not found.' });
-    }
-
-    const isOwner = comment.user_id === req.user.id;
-    const isAdmin = req.user.role === 'admin';
-
-    if (!isOwner && !isAdmin) {
-      return res.status(403).json({ success: false, error: 'Access denied. You can only delete your own comments.' });
-    }
-
-    db.prepare('DELETE FROM comments WHERE id = ?').run(req.params.id);
-    return res.status(200).json({ success: true, message: 'Comment deleted successfully.' });
+    const { rows } = await pool.query('SELECT * FROM comments WHERE id = $1', [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ success: false, error: 'Comment not found.' });
+    if (rows[0].user_id !== req.user.id && req.user.role !== 'admin')
+      return res.status(403).json({ success: false, error: 'Not authorized.' });
+    await pool.query('DELETE FROM comments WHERE id = $1', [req.params.id]);
+    res.status(204).send();
   } catch (err) {
-    console.error('Delete comment error:', err);
-    return res.status(500).json({ success: false, error: 'Internal Server Error' });
+    res.status(500).json({ success: false, error: 'Failed to delete comment.' });
   }
 });
 

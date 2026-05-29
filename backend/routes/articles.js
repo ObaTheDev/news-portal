@@ -1,313 +1,169 @@
 const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
-const db = require('../db/database');
+const pool = require('../db/database');
 const { authenticate, optionalAuth, requireAdmin } = require('../middleware/auth');
+const multer = require('multer');
+const path = require('path');
 
-// Helper to generate a unique slug
-function generateSlug(title) {
-  let baseSlug = title
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .trim()
-    .replace(/\s+/g, '-');
-  
-  // Verify uniqueness of slug; append random numbers if clash
-  const existing = db.prepare('SELECT id FROM articles WHERE slug = ?').get(baseSlug);
-  if (existing) {
-    baseSlug = `${baseSlug}-${Math.floor(1000 + Math.random() * 9000)}`;
-  }
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, path.join(__dirname, '../uploads')),
+  filename: (req, file, cb) => cb(null, `${uuidv4()}${path.extname(file.originalname)}`),
+});
+const upload = multer({ storage });
+
+async function generateSlug(title) {
+  let baseSlug = title.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
+  const { rows } = await pool.query('SELECT id FROM articles WHERE slug = $1', [baseSlug]);
+  if (rows.length > 0) baseSlug = `${baseSlug}-${Math.floor(1000 + Math.random() * 9000)}`;
   return baseSlug;
 }
 
-// GET /api/articles - Paginated feed list with sorting and filtering options
-router.get('/', optionalAuth, (req, res) => {
-  const page = parseInt(req.query.page) || 1;
-  const limit = parseInt(req.query.limit) || 12;
-  const offset = (page - 1) * limit;
-
-  const categorySlug = req.query.category;
-  const searchQuery = req.query.search;
-  const sortBy = req.query.sort || 'newest';
-  const status = req.query.status || 'published'; // admin can query 'all' or 'draft'
-
-  let queryConditions = [];
-  let queryParams = [];
-
-  // Filter status
-  if (status !== 'all') {
-    queryConditions.push('a.status = ?');
-    queryParams.push(status);
-  }
-
-  // Filter category slug
-  if (categorySlug) {
-    queryConditions.push('c.slug = ?');
-    queryParams.push(categorySlug);
-  }
-
-  // Filter search queries
-  if (searchQuery) {
-    queryConditions.push('(a.title LIKE ? OR a.content LIKE ? OR a.excerpt LIKE ?)');
-    const likeVal = `%${searchQuery}%`;
-    queryParams.push(likeVal, likeVal, likeVal);
-  }
-
-  const whereClause = queryConditions.length > 0 ? `WHERE ${queryConditions.join(' AND ')}` : '';
-
-  // Calculate order clauses
-  let orderClause = 'ORDER BY a.created_at DESC';
-  if (sortBy === 'popular') {
-    orderClause = 'ORDER BY a.views DESC, a.created_at DESC';
-  } else if (sortBy === 'trending') {
-    // Trending formula: views + likes * 3 (calculated via subqueries or count columns)
-    orderClause = 'ORDER BY (a.views + (SELECT COUNT(*) FROM likes WHERE article_id = a.id) * 3) DESC, a.created_at DESC';
-  }
-
+// GET /api/articles
+router.get('/', optionalAuth, async (req, res) => {
   try {
-    // Count total matches
-    const totalCountQuery = `
-      SELECT COUNT(*) as count 
-      FROM articles a
-      LEFT JOIN categories c ON a.category_id = c.id
-      ${whereClause}
-    `;
-    const totalCount = db.prepare(totalCountQuery).get(...queryParams).count;
-    const totalPages = Math.ceil(totalCount / limit);
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 12;
+    const offset = (page - 1) * limit;
+    const categorySlug = req.query.category;
+    const searchQuery = req.query.search;
+    const sortBy = req.query.sort || 'newest';
+    const status = req.query.status || 'published';
 
-    // Fetch matching details
-    // We subquery bookmark/like counts, and if authenticated, whether the user has bookmarked or liked it
-    const userId = req.user ? req.user.id : null;
+    let conditions = [];
+    let params = [];
+    let i = 1;
 
-    const dataQuery = `
-      SELECT 
-        a.id, 
-        a.title, 
-        a.slug, 
-        a.excerpt, 
-        a.cover_image, 
-        a.views, 
-        a.status,
-        a.created_at, 
-        a.updated_at,
-        c.name as category_name, 
-        c.slug as category_slug, 
-        u.display_name as author_name,
-        (SELECT COUNT(*) FROM likes WHERE article_id = a.id) as like_count,
-        (SELECT COUNT(*) FROM comments WHERE article_id = a.id) as comment_count,
-        ${userId ? `(SELECT COUNT(*) FROM bookmarks WHERE user_id = ? AND article_id = a.id) > 0` : '0'} as bookmarked,
-        ${userId ? `(SELECT COUNT(*) FROM likes WHERE user_id = ? AND article_id = a.id) > 0` : '0'} as liked
-      FROM articles a
-      LEFT JOIN categories c ON a.category_id = c.id
-      LEFT JOIN users u ON a.author_id = u.id
-      ${whereClause}
-      ${orderClause}
-      LIMIT ? OFFSET ?
-    `;
-
-    const fetchParams = [];
-    if (userId) {
-      fetchParams.push(userId, userId);
+    if (status !== 'all') { conditions.push(`a.status = $${i++}`); params.push(status); }
+    if (categorySlug) { conditions.push(`c.slug = $${i++}`); params.push(categorySlug); }
+    if (searchQuery) {
+      conditions.push(`(a.title ILIKE $${i} OR a.content ILIKE $${i} OR a.excerpt ILIKE $${i})`);
+      params.push(`%${searchQuery}%`); i++;
     }
-    fetchParams.push(...queryParams, limit, offset);
 
-    const items = db.prepare(dataQuery).all(...fetchParams);
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const order = sortBy === 'popular' ? 'ORDER BY a.views DESC' :
+                  sortBy === 'oldest' ? 'ORDER BY a.created_at ASC' : 'ORDER BY a.created_at DESC';
 
-    // Clean up boolean conversion in sqlite returns
-    const processedItems = items.map(item => ({
-      ...item,
-      bookmarked: !!item.bookmarked,
-      liked: !!item.liked,
-    }));
+    const countResult = await pool.query(
+      `SELECT COUNT(*) FROM articles a LEFT JOIN categories c ON a.category_id = c.id ${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0].count);
 
-    return res.status(200).json({
-      success: true,
-      data: processedItems,
-      pagination: {
-        totalCount,
-        totalPages,
-        currentPage: page,
-        limit,
-      },
-    });
+    const { rows } = await pool.query(
+      `SELECT a.id, a.title, a.slug, a.excerpt, a.cover_image, a.status, a.views, a.created_at, a.updated_at,
+              c.id as category_id, c.name as category_name, c.slug as category_slug, c.color as category_color, c.icon as category_icon,
+              u.id as author_id, u.username as author_username, u.display_name as author_display_name, u.avatar_url as author_avatar_url,
+              (SELECT COUNT(*) FROM likes l WHERE l.article_id = a.id) as like_count,
+              (SELECT COUNT(*) FROM comments cm WHERE cm.article_id = a.id) as comment_count
+       FROM articles a
+       LEFT JOIN categories c ON a.category_id = c.id
+       LEFT JOIN users u ON a.author_id = u.id
+       ${where} ${order} LIMIT $${i} OFFSET $${i+1}`,
+      [...params, limit, offset]
+    );
+
+    res.json({ success: true, articles: rows, total, page, limit, totalPages: Math.ceil(total / limit) });
   } catch (err) {
-    console.error('List articles error:', err);
-    return res.status(500).json({ success: false, error: 'Internal Server Error' });
+    console.error(err);
+    res.status(500).json({ success: false, error: 'Failed to fetch articles.' });
   }
 });
 
-// GET /api/articles/by-id/:id (admin dashboard detail fetcher)
-router.get('/by-id/:id', authenticate, requireAdmin, (req, res) => {
+// GET /api/articles/:slug
+router.get('/:slug', optionalAuth, async (req, res) => {
   try {
-    const article = db.prepare(`
-      SELECT * FROM articles WHERE id = ?
-    `).get(req.params.id);
+    await pool.query('UPDATE articles SET views = views + 1 WHERE slug = $1', [req.params.slug]);
+    const { rows } = await pool.query(
+      `SELECT a.*, c.id as category_id, c.name as category_name, c.slug as category_slug,
+              c.color as category_color, c.icon as category_icon,
+              u.id as author_id, u.username as author_username, u.display_name as author_display_name, u.avatar_url as author_avatar_url, u.bio as author_bio,
+              (SELECT COUNT(*) FROM likes l WHERE l.article_id = a.id) as like_count,
+              (SELECT COUNT(*) FROM comments cm WHERE cm.article_id = a.id) as comment_count
+       FROM articles a
+       LEFT JOIN categories c ON a.category_id = c.id
+       LEFT JOIN users u ON a.author_id = u.id
+       WHERE a.slug = $1`,
+      [req.params.slug]
+    );
+    if (!rows[0]) return res.status(404).json({ success: false, error: 'Article not found.' });
 
-    if (!article) {
-      return res.status(404).json({ success: false, error: 'Article not found.' });
+    let is_liked = false, is_bookmarked = false;
+    if (req.user) {
+      const likeRes = await pool.query('SELECT id FROM likes WHERE user_id=$1 AND article_id=$2', [req.user.id, rows[0].id]);
+      const bookRes = await pool.query('SELECT id FROM bookmarks WHERE user_id=$1 AND article_id=$2', [req.user.id, rows[0].id]);
+      is_liked = likeRes.rows.length > 0;
+      is_bookmarked = bookRes.rows.length > 0;
     }
 
-    return res.status(200).json({ success: true, data: article });
+    res.json({ success: true, article: { ...rows[0], is_liked, is_bookmarked } });
   } catch (err) {
-    console.error('Get article by ID error:', err);
-    return res.status(500).json({ success: false, error: 'Internal Server Error' });
+    console.error(err);
+    res.status(500).json({ success: false, error: 'Failed to fetch article.' });
   }
 });
 
-// GET /api/articles/:slug - Increments views, yields full article with auth metrics and likes count
-router.get('/:slug', optionalAuth, (req, res) => {
-  const { slug } = req.params;
-
+// POST /api/articles
+router.post('/', authenticate, upload.single('cover_image'), async (req, res) => {
   try {
-    // Check article exists
-    const articleCheck = db.prepare('SELECT id FROM articles WHERE slug = ?').get(slug);
-    if (!articleCheck) {
-      return res.status(404).json({ success: false, error: 'Article not found.' });
-    }
+    const { title, excerpt, content, category_id, status } = req.body;
+    if (!title || !content) return res.status(400).json({ success: false, error: 'Title and content are required.' });
 
-    const articleId = articleCheck.id;
-
-    // Increment view count
-    db.prepare('UPDATE articles SET views = views + 1 WHERE id = ?').run(articleId);
-
-    const userId = req.user ? req.user.id : null;
-
-    // Fetch full detail
-    const details = db.prepare(`
-      SELECT 
-        a.id, 
-        a.title, 
-        a.slug, 
-        a.excerpt, 
-        a.content, 
-        a.cover_image, 
-        a.views, 
-        a.created_at, 
-        a.updated_at,
-        c.id as category_id,
-        c.name as category_name, 
-        c.slug as category_slug, 
-        u.display_name as author_name,
-        u.avatar_url as author_avatar,
-        (SELECT COUNT(*) FROM likes WHERE article_id = a.id) as like_count,
-        (SELECT COUNT(*) FROM comments WHERE article_id = a.id) as comment_count,
-        ${userId ? `(SELECT COUNT(*) FROM bookmarks WHERE user_id = ? AND article_id = a.id) > 0` : '0'} as bookmarked,
-        ${userId ? `(SELECT COUNT(*) FROM likes WHERE user_id = ? AND article_id = a.id) > 0` : '0'} as liked
-      FROM articles a
-      LEFT JOIN categories c ON a.category_id = c.id
-      LEFT JOIN users u ON a.author_id = u.id
-      WHERE a.id = ?
-    `);
-
-    const params = [];
-    if (userId) {
-      params.push(userId, userId);
-    }
-    params.push(articleId);
-
-    const data = details.get(...params);
-
-    const processedData = {
-      ...data,
-      bookmarked: !!data.bookmarked,
-      liked: !!data.liked,
-    };
-
-    return res.status(200).json({ success: true, data: processedData });
-  } catch (err) {
-    console.error('Fetch article detail error:', err);
-    return res.status(500).json({ success: false, error: 'Internal Server Error' });
-  }
-});
-
-// POST /api/articles - Requires admin permission
-router.post('/', authenticate, requireAdmin, (req, res) => {
-  const { title, cover_image, category_id, excerpt, content, status } = req.body;
-
-  if (!title || !category_id || !content) {
-    return res.status(400).json({ success: false, error: 'Please provide a title, category, and body content.' });
-  }
-
-  try {
+    const slug = await generateSlug(title);
+    const cover_image = req.file ? `/uploads/${req.file.filename}` : (req.body.cover_image || '');
     const id = uuidv4();
-    const slug = generateSlug(title);
-    const excerptVal = excerpt || (content.replace(/<[^>]*>/g, '').substring(0, 150) + '...');
 
-    db.prepare(`
-      INSERT INTO articles (id, title, slug, excerpt, content, cover_image, category_id, author_id, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      title,
-      slug,
-      excerptVal,
-      content,
-      cover_image || '',
-      category_id,
-      req.user.id,
-      status || 'published'
+    await pool.query(
+      `INSERT INTO articles (id, title, slug, excerpt, content, cover_image, category_id, author_id, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [id, title, slug, excerpt || '', content, cover_image, category_id || null, req.user.id, status || 'published']
     );
 
-    const newArticle = db.prepare('SELECT * FROM articles WHERE id = ?').get(id);
-    return res.status(201).json({ success: true, data: newArticle });
+    const { rows } = await pool.query('SELECT * FROM articles WHERE id = $1', [id]);
+    res.status(201).json({ success: true, article: rows[0] });
   } catch (err) {
-    console.error('Create article error:', err);
-    return res.status(500).json({ success: false, error: 'Internal Server Error' });
+    console.error(err);
+    res.status(500).json({ success: false, error: 'Failed to create article.' });
   }
 });
 
-// PUT /api/articles/:id - Requires admin permission
-router.put('/:id', authenticate, requireAdmin, (req, res) => {
-  const { title, cover_image, category_id, excerpt, content, status } = req.body;
-
-  if (!title || !category_id || !content) {
-    return res.status(400).json({ success: false, error: 'Please provide a title, category, and body content.' });
-  }
-
+// PUT /api/articles/:id
+router.put('/:id', authenticate, upload.single('cover_image'), async (req, res) => {
   try {
-    const existing = db.prepare('SELECT id FROM articles WHERE id = ?').get(req.params.id);
-    if (!existing) {
-      return res.status(404).json({ success: false, error: 'Article does not exist.' });
-    }
+    const { title, excerpt, content, category_id, status } = req.body;
+    const existing = await pool.query('SELECT * FROM articles WHERE id = $1', [req.params.id]);
+    if (!existing.rows[0]) return res.status(404).json({ success: false, error: 'Article not found.' });
+    if (existing.rows[0].author_id !== req.user.id && req.user.role !== 'admin')
+      return res.status(403).json({ success: false, error: 'Not authorized.' });
 
-    const excerptVal = excerpt || (content.replace(/<[^>]*>/g, '').substring(0, 150) + '...');
+    const cover_image = req.file ? `/uploads/${req.file.filename}` : (req.body.cover_image || existing.rows[0].cover_image);
 
-    db.prepare(`
-      UPDATE articles 
-      SET title = ?, cover_image = ?, category_id = ?, excerpt = ?, content = ?, status = ?, updated_at = datetime('now')
-      WHERE id = ?
-    `).run(
-      title,
-      cover_image || '',
-      category_id,
-      excerptVal,
-      content,
-      status || 'published',
-      req.params.id
+    const { rows } = await pool.query(
+      `UPDATE articles SET title=$1, excerpt=$2, content=$3, cover_image=$4, category_id=$5, status=$6, updated_at=NOW()
+       WHERE id=$7 RETURNING *`,
+      [title || existing.rows[0].title, excerpt || existing.rows[0].excerpt, content || existing.rows[0].content,
+       cover_image, category_id || existing.rows[0].category_id, status || existing.rows[0].status, req.params.id]
     );
-
-    const updated = db.prepare('SELECT * FROM articles WHERE id = ?').get(req.params.id);
-    return res.status(200).json({ success: true, data: updated });
+    res.json({ success: true, article: rows[0] });
   } catch (err) {
-    console.error('Update article error:', err);
-    return res.status(500).json({ success: false, error: 'Internal Server Error' });
+    console.error(err);
+    res.status(500).json({ success: false, error: 'Failed to update article.' });
   }
 });
 
-// DELETE /api/articles/:id - Requires admin permission
-router.delete('/:id', authenticate, requireAdmin, (req, res) => {
+// DELETE /api/articles/:id
+router.delete('/:id', authenticate, async (req, res) => {
   try {
-    const existing = db.prepare('SELECT id FROM articles WHERE id = ?').get(req.params.id);
-    if (!existing) {
-      return res.status(404).json({ success: false, error: 'Article does not exist.' });
-    }
+    const existing = await pool.query('SELECT * FROM articles WHERE id = $1', [req.params.id]);
+    if (!existing.rows[0]) return res.status(404).json({ success: false, error: 'Article not found.' });
+    if (existing.rows[0].author_id !== req.user.id && req.user.role !== 'admin')
+      return res.status(403).json({ success: false, error: 'Not authorized.' });
 
-    // Cascade options in sqlite table definitions handle foreign keys automatically
-    db.prepare('DELETE FROM articles WHERE id = ?').run(req.params.id);
-    return res.status(200).json({ success: true, message: 'Article deleted successfully.' });
+    await pool.query('DELETE FROM articles WHERE id = $1', [req.params.id]);
+    res.status(204).send();
   } catch (err) {
-    console.error('Delete article error:', err);
-    return res.status(500).json({ success: false, error: 'Internal Server Error' });
+    res.status(500).json({ success: false, error: 'Failed to delete article.' });
   }
 });
 

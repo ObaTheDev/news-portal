@@ -2,6 +2,10 @@
 
 const TOKEN_KEY = 'news_portal_token';
 
+// In production, VITE_API_URL is your Render backend URL.
+// In dev, it falls back to empty string so Vite proxy handles /api/*
+const BASE_URL = import.meta.env.VITE_API_URL || '';
+
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -24,17 +28,15 @@ async function request(url, options = {}) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  // Don't set Content-Type for FormData (browser sets it with boundary)
   if (!(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
 
-  const response = await fetch(url, {
+  const response = await fetch(`${BASE_URL}${url}`, {
     ...options,
     headers,
   });
 
-  // Handle 204 No Content
   if (response.status === 204) {
     return { success: true };
   }
@@ -52,31 +54,18 @@ async function request(url, options = {}) {
 }
 
 export const api = {
-  get(url) {
-    return request(url, { method: 'GET' });
-  },
-
+  get(url) { return request(url, { method: 'GET' }); },
   post(url, body) {
     const options = { method: 'POST' };
-    if (body instanceof FormData) {
-      options.body = body;
-    } else if (body !== undefined) {
-      options.body = JSON.stringify(body);
-    }
+    if (body instanceof FormData) { options.body = body; }
+    else if (body !== undefined) { options.body = JSON.stringify(body); }
     return request(url, options);
   },
-
   put(url, body) {
     const options = { method: 'PUT' };
-    if (body instanceof FormData) {
-      options.body = body;
-    } else if (body !== undefined) {
-      options.body = JSON.stringify(body);
-    }
+    if (body instanceof FormData) { options.body = body; }
+    else if (body !== undefined) { options.body = JSON.stringify(body); }
     return request(url, options);
   },
-
-  delete(url) {
-    return request(url, { method: 'DELETE' });
-  },
+  delete(url) { return request(url, { method: 'DELETE' }); },
 };
