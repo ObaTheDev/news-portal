@@ -1544,6 +1544,8 @@ ul, ol {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  width: 100%;
+  min-height: 44px;
 }
 
 .mobile-nav-link:hover,
