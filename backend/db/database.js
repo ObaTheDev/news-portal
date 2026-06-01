@@ -250,7 +250,7 @@ async function initializeDatabase() {
           <h2>Looking Forward</h2>
           <p>The momentum behind green energy investments shows no signs of slowing down. As technology improves and costs continue to fall, the economic rationale for transitioning away from fossil fuels becomes undeniable. The financial sector's commitment to sustainability will play a pivotal role in shaping the global economy for decades to come.</p>
         `,
-        cover_image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800',
+        cover_image: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=800',
         views: 4500
       },
       {
@@ -369,7 +369,7 @@ async function initializeDatabase() {
           <h2>The Path Forward in Dietetics</h2>
           <p>As precision nutrition continues to mature, it has the potential to become a standard component of preventative medicine. Integrating microbiome data with continuous glucose monitoring and genomic profiling will allow for increasingly accurate and effective dietary interventions. This holistic approach will empower individuals to take proactive control of their health.</p>
         `,
-        cover_image: 'https://images.unsplash.com/photo-1511295742364-92767fa62d9f?auto=format&fit=crop&w=800',
+        cover_image: 'https://images.unsplash.com/photo-1490645935967-10de6ba17061?auto=format&fit=crop&w=800',
         views: 2980
       },
       {

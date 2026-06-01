@@ -103,32 +103,25 @@ export default function ArticleCard({ article, variant = 'standard', onBookmarkT
   }
 
   return (
-    <article className="card">
-      <Link to={articleUrl} className="card-image">
-        <img src={cover_image || 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?q=80&w=600'} alt={title} loading="lazy" />
-        <div className="card-image-overlay"></div>
+    <article className="card card-featured" style={{ height: '100%' }}>
+      <Link to={articleUrl} className="card-image" style={{ height: '100%', aspectRatio: 'auto' }}>
+        <img src={cover_image || 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?q=80&w=600'} alt={title} loading="lazy" style={{ height: '100%' }} />
+        <div className="card-image-overlay" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 50%, transparent 100%)' }}></div>
       </Link>
-      <div className="card-body">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-3)' }}>
+      <div className="card-body" style={{ zIndex: 2 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-2)' }}>
           <CategoryBadge name={category_name} slug={category_slug} />
           <BookmarkButton articleId={id} initialBookmarked={bookmarked} onToggle={onBookmarkToggle} />
         </div>
         <Link to={articleUrl}>
-          <h3 style={{ fontSize: 'var(--text-xl)', marginBottom: 'var(--space-2)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          <h3 style={{ fontSize: 'var(--text-xl)', marginBottom: 'var(--space-2)', color: 'white', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
             {title}
           </h3>
         </Link>
-        <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)', marginBottom: 'var(--space-4)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', height: '2.8em' }}>
-          {excerpt}
-        </p>
-        <div className="article-meta">
-          <span>By {author_display_name || author_username}</span>
-          <span className="article-meta-dot"></span>
+        <div className="article-meta" style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: 'var(--text-xs)', marginTop: 'auto' }}>
+          <span>{author_display_name || author_username}</span>
+          <span className="article-meta-dot" style={{ backgroundColor: 'rgba(255,255,255,0.5)' }}></span>
           <span>{getRelativeTime(created_at)}</span>
-          <span className="article-meta-dot"></span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-            <Eye size={12} /> {views}
-          </span>
         </div>
       </div>
     </article>
