@@ -1,101 +1,41 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Clock, Eye, Calendar, Sparkles } from 'lucide-react';
-import { format, parseISO } from 'date-fns';
-import { api } from '../utils/api';
-import CommentSection from '../components/CommentSection';
-import LikeButton from '../components/LikeButton';
-import BookmarkButton from '../components/BookmarkButton';
-import ShareButton from '../components/ShareButton';
-import CategoryBadge from '../components/CategoryBadge';
-import { DetailSkeleton } from '../components/Skeleton';
-import { useToast } from '../contexts/ToastContext';
+import React, { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
 
 export default function ArticlePage() {
   const { slug } = useParams();
   const [article, setArticle] = useState(null);
-  const [relatedArticles, setRelatedArticles] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [scrollProgress, setScrollProgress] = useState(0);
-  
-  const navigate = useNavigate();
-  const { showToast } = useToast();
+  const [notFound, setNotFound] = useState(false);
 
-  // Scroll Progress Listener
   useEffect(() => {
-    const handleScroll = () => {
-      const totalHeight = document.documentElement.scrollHeight - window.innerHeight;
-      if (totalHeight > 0) {
-        const progress = (window.scrollY / totalHeight) * 100;
-        setScrollProgress(progress);
-      }
-    };
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
-
-  // Fetch Article Details
-  useEffect(() => {
-    const fetchArticle = async () => {
-      setLoading(true);
+    if (!slug) return;
+    (async () => {
       try {
-        const res = await api.get(`/api/articles/${slug}`);
-        if (res.success && res.data) {
-          setArticle(res.data);
-          
-          // Fetch related articles by category slug
-          try {
-            const relRes = await api.get(`/api/articles?category=${res.data.category_slug}&limit=4`);
-            const items = relRes.data || [];
-            // Exclude current article from related
-            setRelatedArticles(items.filter(item => item.id !== res.data.id));
-          } catch (e) {
-            console.error('Failed to fetch related articles', e);
-          }
+        const res = await fetch(`/api/articles/${slug}`);
+        if (!res.ok) {
+          setNotFound(true);
+          return;
+        }
+        const body = await res.json();
+        // backend returns { success: true, article: {...} } (no .data)
+        // be tolerant: accept body.article or body.data?.article
+        const found = body.article ?? body.data?.article ?? null;
+        if (found) {
+          setArticle(found);
+          setNotFound(false);
         } else {
-          showToast('Article not found', 'error');
-          navigate('/');
+          setNotFound(true);
         }
       } catch (err) {
-        showToast(err.message || 'Failed to fetch article details', 'error');
-        navigate('/');
-      } finally {
-        setLoading(false);
+        setNotFound(true);
       }
-    };
+    })();
+  }, [slug]);
 
-    fetchArticle();
-  }, [slug, navigate, showToast]);
-
-  const calculateReadingTime = (text) => {
-    if (!text) return '1 min';
-    const words = text.trim().split(/\s+/).length;
-    const time = Math.ceil(words / 225);
-    return `${time} min read`;
-  };
-
-  const formatDate = (dateStr) => {
-    try {
-      if (!dateStr) return '';
-      const isoStr = dateStr.replace(' ', 'T') + 'Z';
-      return format(parseISO(isoStr), 'MMMM dd, yyyy');
-    } catch (e) {
-      return dateStr;
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="page-wrapper" style={{ paddingTop: '40px' }}>
-        <DetailSkeleton />
-      </div>
-    );
-  }
-
-  if (!article) return null;
+  if (notFound) return <div>article not found</div>;
+  if (!article) return <div>loading...</div>;
 
   return (
-    <>
+    <main>
       {/* Sticky Reading Progress Bar */}
       <div className="reading-progress">
         <div className="reading-progress-bar" style={{ width: `${scrollProgress}%` }}></div>
@@ -202,6 +142,6 @@ export default function ArticlePage() {
         {/* Comment Section Integration */}
         <CommentSection articleId={article.id} />
       </div>
-    </>
+    </main>
   );
 }
