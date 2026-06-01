@@ -21,7 +21,7 @@ export default function CommentSection({ articleId }) {
   const fetchComments = async () => {
     try {
       const res = await api.get(`/api/comments/article/${articleId}`);
-      setComments(res.data || []);
+      setComments(res.comments || []);
     } catch (err) {
       console.error('Failed to fetch comments', err);
     } finally {

@@ -1,26 +1,45 @@
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
+import { ArrowLeft, Calendar, Clock, Eye, Sparkles } from "lucide-react";
+import { api } from "../utils/api";
+import CategoryBadge from "../components/CategoryBadge";
+import LikeButton from "../components/LikeButton";
+import BookmarkButton from "../components/BookmarkButton";
+import ShareButton from "../components/ShareButton";
+import CommentSection from "../components/CommentSection";
+import { format, parseISO } from "date-fns";
 
 export default function ArticlePage() {
   const { slug } = useParams();
   const [article, setArticle] = useState(null);
   const [notFound, setNotFound] = useState(false);
+  const [scrollProgress, setScrollProgress] = useState(0);
+  const [relatedArticles, setRelatedArticles] = useState([]);
+  const navigate = useNavigate();
+
+  const formatDate = (dateStr) => {
+    try {
+      if (!dateStr) return '';
+      return format(parseISO(dateStr), 'MMM dd, yyyy');
+    } catch (e) {
+      return dateStr;
+    }
+  };
+
+  const calculateReadingTime = (text) => {
+    if (!text) return '1 min';
+    const words = text.trim().split(/\s+/).length;
+    const time = Math.ceil(words / 225);
+    return `${time} min read`;
+  };
 
   useEffect(() => {
     if (!slug) return;
     (async () => {
       try {
-        const res = await fetch(`/api/articles/${slug}`);
-        if (!res.ok) {
-          setNotFound(true);
-          return;
-        }
-        const body = await res.json();
-        // backend returns { success: true, article: {...} } (no .data)
-        // be tolerant: accept body.article or body.data?.article
-        const found = body.article ?? body.data?.article ?? null;
-        if (found) {
-          setArticle(found);
+        const res = await api.get(`/api/articles/${slug}`);
+        if (res.success && res.article) {
+          setArticle(res.article);
           setNotFound(false);
         } else {
           setNotFound(true);

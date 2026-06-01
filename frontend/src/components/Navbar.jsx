@@ -26,7 +26,7 @@ export default function Navbar() {
   useEffect(() => {
     api.get('/api/categories')
       .then(res => {
-        setCategories(res.data || []);
+        setCategories(res.categories || []);
       })
       .catch(err => {
         console.error('Failed to load categories', err);

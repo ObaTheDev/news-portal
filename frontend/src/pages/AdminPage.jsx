@@ -20,7 +20,7 @@ export default function AdminPage() {
     try {
       const res = await api.get('/api/articles?limit=100&status=all');
       if (res.success) {
-        const items = res.data || [];
+        const items = res.articles || [];
         setArticles(items);
         
         // Sum up metrics to populate cards

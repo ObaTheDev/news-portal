@@ -29,7 +29,7 @@ export default function CategoryPage() {
       try {
         // Find category metadata by listing all categories and finding matches
         const cats = await api.get('/api/categories');
-        const currentCat = (cats.data || []).find(c => c.slug.toLowerCase() === slug.toLowerCase());
+        const currentCat = (cats.categories || []).find(c => c.slug.toLowerCase() === slug.toLowerCase());
         
         if (currentCat) {
           setCategory(currentCat);
@@ -43,7 +43,7 @@ export default function CategoryPage() {
         );
         
         if (articlesRes.success) {
-          setArticles(articlesRes.data || []);
+          setArticles(articlesRes.articles || []);
           setTotalPages(articlesRes.pagination?.totalPages || 1);
         }
       } catch (err) {

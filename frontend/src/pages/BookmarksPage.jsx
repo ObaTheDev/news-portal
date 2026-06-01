@@ -19,7 +19,7 @@ export default function BookmarksPage() {
       const res = await api.get('/api/bookmarks');
       if (res.success) {
         // Bookmarks endpoint returns full article details, let's inject bookmarked: true manually
-        const items = (res.data || []).map(item => ({ ...item, bookmarked: true }));
+        const items = (res.bookmarks || []).map(item => ({ ...item, bookmarked: true }));
         setBookmarks(items);
       }
     } catch (err) {

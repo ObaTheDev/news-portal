@@ -25,7 +25,7 @@ export default function ArticleEditorPage() {
   // Fetch Categories
   useEffect(() => {
     api.get('/api/categories')
-      .then(res => setCategories(res.data || []))
+      .then(res => setCategories(res.categories || []))
       .catch(err => console.error('Failed to load categories', err));
   }, []);
 
@@ -39,8 +39,8 @@ export default function ArticleEditorPage() {
         const res = await api.get(`/api/articles/by-id/${id}`);
         // Note: we'll build a simple endpoint GET /api/articles/by-id/:id or query articles by ID
         // To be safe, let's fetch articles and find match, or call API
-        if (res.success && res.data) {
-          const art = res.data;
+        if (res.success && res.article) {
+          const art = res.article;
           setTitle(art.title);
           setCoverImage(art.cover_image);
           setCategoryId(art.category_id);

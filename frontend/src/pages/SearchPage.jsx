@@ -38,7 +38,7 @@ export default function SearchPage() {
           `/api/articles?search=${encodeURIComponent(query)}&page=${page}&limit=${limit}`
         );
         if (res.success) {
-          setArticles(res.data || []);
+          setArticles(res.articles || []);
           setTotalPages(res.pagination?.totalPages || 1);
         }
       } catch (err) {

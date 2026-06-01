@@ -13,7 +13,7 @@ export function AuthProvider({ children }) {
     if (token) {
       api.get('/api/auth/me')
         .then(data => {
-          setUser(data.data || data.user || data);
+          setUser(data.user || data);
         })
         .catch(() => {
           removeToken();
@@ -47,7 +47,7 @@ export function AuthProvider({ children }) {
 
   const updateProfile = useCallback(async (profileData) => {
     const data = await api.put('/api/auth/profile', profileData);
-    setUser(data.user || data.data);
+    setUser(data.user);
     return data;
   }, []);
 
