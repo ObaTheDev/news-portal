@@ -55,5 +55,5 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`Server launched successfully on port ${PORT}`);
   console.log(`CORS allowed origins configured for: ${process.env.CORS_ORIGIN || 'http://localhost:5173'}`);
-  console.log(`Database source file connected at: ${path.resolve(__dirname, 'data/news-portal.sqlite')}`);
+  console.log(`PostgreSQL database pool initialized via DATABASE_URL`);
 });
