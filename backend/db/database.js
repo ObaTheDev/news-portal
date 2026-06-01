@@ -406,8 +406,6 @@ async function initializeDatabase() {
         cover_image: 'https://images.unsplash.com/photo-1447752875215-b2761acb3c5d?auto=format&fit=crop&w=800',
         views: 1870
       }
-    ];: 1870
-      },
     ];
 
     for (let index = 0; index < articlesSeed.length; index++) {
