@@ -21,17 +21,17 @@ export default function HomePage() {
       try {
         // Load categories
         const catRes = await api.get('/api/categories');
-        setCategories(catRes.data || []);
+        setCategories(catRes.categories || []);
 
         // Load trending articles
         const trendingRes = await api.get('/api/articles?sort=trending&limit=6');
-        const trendingData = trendingRes.data || [];
+        const trendingData = trendingRes.articles || [];
         setTrendingArticles(trendingData);
 
         // Load latest articles
         const latestRes = await api.get('/api/articles?limit=10');
-        const latestData = latestRes.data || [];
-        
+        const latestData = latestRes.articles || [];
+
         if (latestData.length > 0) {
           setFeaturedArticle(latestData[0]);
           setLatestArticles(latestData.slice(1));
@@ -41,7 +41,7 @@ export default function HomePage() {
         if (isAuthenticated) {
           try {
             const recRes = await api.get('/api/articles?sort=popular&limit=3');
-            setRecommendedArticles(recRes.data || []);
+            setRecommendedArticles(recRes.articles || []);
           } catch (e) {
             console.error('Failed to load recommendations', e);
           }

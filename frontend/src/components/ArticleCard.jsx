@@ -19,7 +19,8 @@ export default function ArticleCard({ article, variant = 'standard', onBookmarkT
     cover_image,
     category_name,
     category_slug,
-    author_name,
+    author_display_name,
+    author_username,
     views,
     created_at,
     bookmarked,
@@ -36,9 +37,8 @@ export default function ArticleCard({ article, variant = 'standard', onBookmarkT
   const getRelativeTime = (dateStr) => {
     try {
       if (!dateStr) return '';
-      // SQLite uses UTC text format, let's normalize it
-      const isoStr = dateStr.replace(' ', 'T') + 'Z';
-      return formatDistanceToNow(parseISO(isoStr), { addSuffix: true });
+      // PostgreSQL returns valid ISO 8601 timestamps — parse directly
+      return formatDistanceToNow(parseISO(dateStr), { addSuffix: true });
     } catch (e) {
       return dateStr || '';
     }
@@ -65,7 +65,7 @@ export default function ArticleCard({ article, variant = 'standard', onBookmarkT
             {excerpt}
           </p>
           <div className="article-meta" style={{ color: 'rgba(255, 255, 255, 0.75)' }}>
-            <span style={{ color: 'white', fontWeight: 'var(--weight-medium)' }}>By {author_name}</span>
+            <span style={{ color: 'white', fontWeight: 'var(--weight-medium)' }}>By {author_display_name || author_username}</span>
             <span className="article-meta-dot" style={{ backgroundColor: 'rgba(255,255,255,0.5)' }}></span>
             <span>{getRelativeTime(created_at)}</span>
             <span className="article-meta-dot" style={{ backgroundColor: 'rgba(255,255,255,0.5)' }}></span>
@@ -93,7 +93,7 @@ export default function ArticleCard({ article, variant = 'standard', onBookmarkT
             {title}
           </h3>
           <div className="article-meta" style={{ fontSize: 'var(--text-xs)' }}>
-            <span>By {author_name}</span>
+            <span>By {author_display_name || author_username}</span>
             <span className="article-meta-dot"></span>
             <span>{getRelativeTime(created_at)}</span>
           </div>
@@ -122,7 +122,7 @@ export default function ArticleCard({ article, variant = 'standard', onBookmarkT
           {excerpt}
         </p>
         <div className="article-meta">
-          <span>By {author_name}</span>
+          <span>By {author_display_name || author_username}</span>
           <span className="article-meta-dot"></span>
           <span>{getRelativeTime(created_at)}</span>
           <span className="article-meta-dot"></span>

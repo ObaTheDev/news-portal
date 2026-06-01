@@ -42,7 +42,7 @@ router.get('/', optionalAuth, async (req, res) => {
     }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    const order = sortBy === 'popular' ? 'ORDER BY a.views DESC' :
+    const order = (sortBy === 'popular' || sortBy === 'trending') ? 'ORDER BY a.views DESC' :
                   sortBy === 'oldest' ? 'ORDER BY a.created_at ASC' : 'ORDER BY a.created_at DESC';
 
     const countResult = await pool.query(
